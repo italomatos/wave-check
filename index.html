@@ -143,9 +143,101 @@
       font-weight: 600;
     }
 
+    /* forecast */
+    #forecast-section { opacity: 0; transition: opacity 0.4s; }
+    #forecast-section.visible { opacity: 1; }
+
+    .forecast-scroll {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: #1e4a70 transparent;
+    }
+    .forecast-scroll::-webkit-scrollbar { height: 4px; }
+    .forecast-scroll::-webkit-scrollbar-track { background: transparent; }
+    .forecast-scroll::-webkit-scrollbar-thumb { background: #1e4a70; border-radius: 4px; }
+
+    .forecast-day {
+      flex: 0 0 120px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 1rem;
+      padding: 14px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .forecast-day:hover  { transform: translateY(-3px); }
+    .forecast-day.active {
+      background: rgba(56,189,248,0.12);
+      border-color: var(--sky);
+    }
+    .forecast-day.border-success { border-color: #10b981 !important; }
+    .forecast-day.border-warning { border-color: #f59e0b !important; }
+    .forecast-day.border-danger  { border-color: #ef4444 !important; }
+
+    .fc-weekday { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; font-weight: 700; }
+    .fc-date    { font-size: 0.75rem; color: #475569; }
+    .fc-icon    { font-size: 1.8rem; line-height: 1; }
+    .fc-wave    { font-size: 1rem; font-weight: 800; color: #f1f5f9; }
+    .fc-wave small { font-size: 0.65rem; color: #94a3b8; font-weight: 400; }
+    .fc-wind    { font-size: 0.72rem; color: #7dd3fc; }
+    .fc-rating  { font-size: 0.65rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-top: 2px; }
+    .fc-rating.excellent { background: #064e3b; color: #6ee7b7; }
+    .fc-rating.good      { background: #0c4a6e; color: #bae6fd; }
+    .fc-rating.fair      { background: #451a03; color: #fde68a; }
+    .fc-rating.poor      { background: #450a0a; color: #fca5a5; }
+
     footer { color: #334155; font-size: 0.75rem; }
     footer a { color: #475569; text-decoration: none; }
     footer a:hover { color: #94a3b8; }
+
+    /* refresh button */
+    #refresh-btn {
+      display: none;
+      background: var(--sky-dim);
+      color: var(--sky);
+      border: 1px solid #1e4a70;
+      border-radius: 0.75rem !important;
+      font-weight: 600;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    #refresh-btn:hover { background: rgba(56,189,248,0.25); color: #7dd3fc; border-color: var(--sky); }
+    #refresh-btn.spinning i { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* pull-to-refresh indicator */
+    #ptr-indicator {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      background: var(--ocean-2);
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      padding: 8px 20px;
+      font-size: 0.8rem;
+      color: var(--sky);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #ptr-indicator.visible {
+      transform: translateX(-50%) translateY(16px);
+      opacity: 1;
+    }
+    #ptr-indicator i { font-size: 1rem; transition: transform 0.3s; }
+    #ptr-indicator.ready i { transform: rotate(180deg); }
   </style>
 </head>
 <body>
@@ -171,11 +263,22 @@
         <i class="bi bi-search me-1"></i> Buscar
       </button>
     </div>
-    <div class="d-grid">
-      <button id="gps-btn" class="btn btn-gps py-2" onclick="useMyLocation()">
-        <i class="bi bi-geo-alt-fill me-2"></i>Usar minha localização
+    <div class="d-flex gap-2">
+      <div class="flex-grow-1">
+        <button id="gps-btn" class="btn btn-gps py-2 w-100" onclick="useMyLocation()">
+          <i class="bi bi-geo-alt-fill me-2"></i>Usar minha localização
+        </button>
+      </div>
+      <button id="refresh-btn" class="btn py-2 px-3" onclick="refreshData()" title="Atualizar dados">
+        <i class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
+  </div>
+
+  <!-- Pull-to-refresh indicator -->
+  <div id="ptr-indicator">
+    <i class="bi bi-arrow-down"></i>
+    <span id="ptr-text">Puxe para atualizar</span>
   </div>
 
   <!-- Rating banner -->
@@ -186,6 +289,12 @@
 
   <!-- Stat cards -->
   <div class="row g-3 mb-2" id="cards-grid"></div>
+
+  <!-- 7-day forecast -->
+  <section id="forecast-section" class="mt-4">
+    <p class="section-label mb-3"><i class="bi bi-calendar3 me-1"></i> Previsão 7 Dias</p>
+    <div class="forecast-scroll" id="forecast-scroll"></div>
+  </section>
 
   <!-- Tide section -->
   <section id="tide-section" class="mt-4">
@@ -328,6 +437,7 @@
     const [weatherRes, marineRes] = await Promise.all([fetch(weatherUrl), fetch(marineUrl)]);
 
     fetchTideData(lat, lon);
+    fetchForecast(lat, lon);
 
     if (!weatherRes.ok) throw new Error('Erro ao buscar dados climáticos.');
     if (!marineRes.ok)  throw new Error('Dados de ondas não disponíveis para esta localização. Tente uma cidade costeira.');
@@ -486,6 +596,70 @@
     document.getElementById('tide-section').classList.add('visible');
   }
 
+  const WEEKDAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const ratingLabel = { excellent: 'Excelente', good: 'Boa', fair: 'Regular', poor: 'Ruim' };
+  const pillBorderForecast = { green: 'border-success', yellow: 'border-warning', red: 'border-danger' };
+
+  async function fetchForecast(lat, lon) {
+    const weatherUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&daily=weathercode,temperature_2m_max,temperature_2m_min,windspeed_10m_max,winddirection_10m_dominant,precipitation_sum` +
+      `&wind_speed_unit=kmh&timezone=auto&forecast_days=7`;
+
+    const marineUrl =
+      `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}` +
+      `&daily=wave_height_max,wave_period_max,swell_wave_height_max` +
+      `&timezone=auto&forecast_days=7`;
+
+    const [wRes, mRes] = await Promise.all([fetch(weatherUrl), fetch(marineUrl)]);
+    if (!wRes.ok || !mRes.ok) return;
+
+    const wData = await wRes.json();
+    const mData = await mRes.json();
+
+    renderForecast(wData.daily, mData.daily);
+  }
+
+  function renderForecast(wd, md) {
+    const days = wd.time.length;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const html = wd.time.map((dateStr, i) => {
+      const date     = new Date(dateStr + 'T12:00:00');
+      const isToday  = date.toDateString() === today.toDateString();
+      const weekday  = isToday ? 'Hoje' : WEEKDAYS[date.getDay()];
+      const dayNum   = `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}`;
+
+      const wmoCode  = wd.weathercode[i];
+      const windMax  = Math.round(wd.windspeed_10m_max[i] ?? 0);
+      const waveH    = md.wave_height_max?.[i];
+      const waveP    = md.wave_period_max?.[i] ? Math.round(md.wave_period_max[i]) : null;
+      const wInfo    = wmoInfo(wmoCode);
+
+      const rWind    = windRating(windMax);
+      const rPeriod  = periodRating(waveP ?? 0);
+      const rHeight  = waveH != null ? heightRating(waveH) : 'yellow';
+      const rWeather = weatherRating(wmoCode);
+      const overall  = overallRating(rWind, rPeriod, rHeight, rWeather);
+      const border   = pillBorderForecast[rHeight] ?? '';
+
+      return `
+        <div class="forecast-day ${border} ${isToday ? 'active' : ''}" title="${dateStr}">
+          <div class="fc-weekday">${weekday}</div>
+          <div class="fc-date">${dayNum}</div>
+          <div class="fc-icon">${wInfo.icon}</div>
+          <div class="fc-wave">${waveH != null ? waveH.toFixed(1) : '—'}<small> m</small></div>
+          <div class="fc-wind"><i class="bi bi-wind"></i> ${windMax} km/h</div>
+          ${waveP ? `<div class="fc-wind"><i class="bi bi-hourglass-split"></i> ${waveP}s</div>` : ''}
+          <span class="fc-rating ${overall}">${ratingLabel[overall]}</span>
+        </div>`;
+    }).join('');
+
+    document.getElementById('forecast-scroll').innerHTML = html;
+    document.getElementById('forecast-section').classList.add('visible');
+  }
+
   async function useMyLocation() {
     if (!navigator.geolocation) {
       showError('Geolocalização não suportada neste navegador.');
@@ -549,6 +723,8 @@
     const banner = document.getElementById('rating-banner');
     banner.className = 'p-4 mb-4';
     banner.classList.remove('visible');
+    document.getElementById('forecast-section').classList.remove('visible');
+    document.getElementById('forecast-scroll').innerHTML = '';
     document.getElementById('tide-section').classList.remove('visible');
     document.getElementById('tide-extremes').innerHTML = '';
     document.getElementById('tide-hours').innerHTML = '';
@@ -568,6 +744,84 @@
   document.getElementById('location-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') searchLocation();
   });
+
+  // ── State for last search ─────────────────────────────────────────────────
+  let lastLat = null, lastLon = null, lastName = null;
+
+  function saveLastLocation(lat, lon, name) {
+    lastLat = lat; lastLon = lon; lastName = name;
+    document.getElementById('refresh-btn').style.display = 'block';
+  }
+
+  async function refreshData() {
+    if (lastLat === null) return;
+    const btn = document.getElementById('refresh-btn');
+    btn.classList.add('spinning');
+    btn.disabled = true;
+    clearResults();
+    showLoading(true);
+    try {
+      await fetchSurfData(lastLat, lastLon, lastName);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      showLoading(false);
+      btn.classList.remove('spinning');
+      btn.disabled = false;
+    }
+  }
+
+  // ── Patch fetchSurfData to save location ──────────────────────────────────
+  const _origFetchSurfData = fetchSurfData;
+  fetchSurfData = async function(lat, lon, name) {
+    await _origFetchSurfData(lat, lon, name);
+    saveLastLocation(lat, lon, name);
+  };
+
+  // ── Pull-to-refresh (touch) ───────────────────────────────────────────────
+  const PTR_THRESHOLD = 80;
+  let ptrStartY = null;
+  let ptrActive  = false;
+
+  const ptrIndicator = document.getElementById('ptr-indicator');
+  const ptrText      = document.getElementById('ptr-text');
+
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY === 0 && lastLat !== null) {
+      ptrStartY = e.touches[0].clientY;
+      ptrActive = true;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!ptrActive || ptrStartY === null) return;
+    const dy = e.touches[0].clientY - ptrStartY;
+    if (dy <= 0) { resetPTR(); return; }
+    ptrIndicator.classList.add('visible');
+    if (dy >= PTR_THRESHOLD) {
+      ptrIndicator.classList.add('ready');
+      ptrText.textContent = 'Solte para atualizar';
+    } else {
+      ptrIndicator.classList.remove('ready');
+      ptrText.textContent = 'Puxe para atualizar';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', async e => {
+    if (!ptrActive) return;
+    const dy = (e.changedTouches[0]?.clientY ?? 0) - (ptrStartY ?? 0);
+    resetPTR();
+    if (dy >= PTR_THRESHOLD && lastLat !== null) {
+      await refreshData();
+    }
+  }, { passive: true });
+
+  function resetPTR() {
+    ptrStartY = null;
+    ptrActive  = false;
+    ptrIndicator.classList.remove('visible', 'ready');
+    ptrText.textContent = 'Puxe para atualizar';
+  }
 </script>
 </body>
 </html>
