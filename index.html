@@ -194,6 +194,25 @@
     .fc-rating.fair      { background: #451a03; color: #fde68a; }
     .fc-rating.poor      { background: #450a0a; color: #fca5a5; }
 
+    .fc-moon { font-size: 0.68rem; color: #94a3b8; display: flex; align-items: center; gap: 3px; }
+    .fc-moon-icon { font-size: 0.95rem; line-height: 1; }
+
+    /* moon cycle bar */
+    .moon-cycle-bar {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 2px;
+    }
+    .moon-cycle-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #94a3b8, #f1f5f9);
+      border-radius: 999px;
+      transition: width 0.6s ease;
+    }
+
     footer { color: #334155; font-size: 0.75rem; }
     footer a { color: #475569; text-decoration: none; }
     footer a:hover { color: #94a3b8; }
@@ -366,6 +385,35 @@
   const compassDir = d => ['N','NE','L','SE','S','SO','O','NO'][Math.round(d / 45) % 8];
   const pillLabel  = c => ({ green: 'Ótimo', yellow: 'Regular', red: 'Ruim' })[c];
 
+  // ── Moon phase calculation ────────────────────────────────────────────────
+  function getMoonPhase(date = new Date()) {
+    // Julian Date
+    const JD = date / 86400000 + 2440587.5;
+    // Days since known new moon (Jan 6 2000 18:14 UTC → JD 2451550.1)
+    const daysSinceNew = JD - 2451550.1;
+    const SYNODIC = 29.53058867;
+    let age = ((daysSinceNew % SYNODIC) + SYNODIC) % SYNODIC; // 0–29.53
+
+    const pct = age / SYNODIC; // 0–1
+
+    let name, icon, influence;
+    if      (pct < 0.033)  { name = 'Lua Nova';          icon = '🌑'; influence = 'Maré sizígia — amplitude máxima'; }
+    else if (pct < 0.216)  { name = 'Lua Crescente';     icon = '🌒'; influence = 'Amplitude aumentando'; }
+    else if (pct < 0.284)  { name = 'Quarto Crescente';  icon = '🌓'; influence = 'Maré de quadratura — amplitude moderada'; }
+    else if (pct < 0.466)  { name = 'Gibosa Crescente';  icon = '🌔'; influence = 'Amplitude aumentando'; }
+    else if (pct < 0.534)  { name = 'Lua Cheia';         icon = '🌕'; influence = 'Maré sizígia — amplitude máxima'; }
+    else if (pct < 0.716)  { name = 'Gibosa Minguante';  icon = '🌖'; influence = 'Amplitude diminuindo'; }
+    else if (pct < 0.784)  { name = 'Quarto Minguante';  icon = '🌗'; influence = 'Maré de quadratura — amplitude moderada'; }
+    else if (pct < 0.966)  { name = 'Lua Minguante';     icon = '🌘'; influence = 'Amplitude diminuindo'; }
+    else                   { name = 'Lua Nova';           icon = '🌑'; influence = 'Maré sizígia — amplitude máxima'; }
+
+    const daysToFull = pct < 0.5
+      ? Math.round((0.5 - pct) * SYNODIC)
+      : Math.round((1.5 - pct) * SYNODIC);
+
+    return { name, icon, age: Math.round(age), pct, influence, daysToFull };
+  }
+
   function windRating(s)    { return s < 15 ? 'green' : s < 25 ? 'yellow' : 'red'; }
   function periodRating(p)  { return p >= 12 ? 'green' : p >= 8 ? 'yellow' : 'red'; }
   function heightRating(h)  { return (h >= 1 && h <= 2.5) ? 'green' : (h > 0.3 && h < 4) ? 'yellow' : 'red'; }
@@ -387,17 +435,23 @@
 
   const pillBorderClass = { green: 'border-success', yellow: 'border-warning', red: 'border-danger' };
 
-  function makeCard({ icon, label, value, unit, sub, pill }) {
+  function makeCard({ icon, label, value, unit, sub, pill, moonAge, moonPct }) {
     const border = pill ? pillBorderClass[pill] : '';
+    const moonBar = moonAge != null ? `
+      <div class="moon-cycle-bar" title="Dia ${moonAge} do ciclo lunar (29 dias)">
+        <div class="moon-cycle-fill" style="width:${(moonPct * 100).toFixed(1)}%"></div>
+      </div>
+      <div class="stat-unit">Dia ${moonAge} de 29</div>` : '';
     return `
       <div class="col-6 col-md-4">
         <div class="glass-card ${border} h-100 p-3 d-flex flex-column align-items-center text-center gap-2">
           <div class="stat-icon">${icon}</div>
           <div class="stat-label">${label}</div>
-          <div class="stat-value">${value}</div>
+          <div class="stat-value" style="${moonAge != null ? 'font-size:1.1rem' : ''}">${value}</div>
           ${unit ? `<div class="stat-unit">${unit}</div>` : ''}
           ${sub  ? `<div class="stat-sub">${sub}</div>`   : ''}
           ${pill ? `<span class="pill ${pill}">${pillLabel(pill)}</span>` : ''}
+          ${moonBar}
         </div>
       </div>`;
   }
@@ -470,13 +524,16 @@
     document.getElementById('banner-text').innerHTML =
       `<strong>${locationName.split(',')[0]}</strong> — ${rating.text}`;
 
+    const moon = getMoonPhase();
+
     const cards = [
-      { icon: '💨', label: 'Vento',          value: windSpeed,       unit: 'km/h', sub: `Direção: ${compassDir(windDir)} (${windDir}°)`,                           pill: rWind },
-      { icon: '🌊', label: 'Altura das Ondas',value: waveHeight,      unit: 'm',    sub: waveDir != null ? `Direção: ${compassDir(waveDir)} (${waveDir}°)` : '',    pill: rHeight },
-      { icon: '⏱️', label: 'Período',         value: wavePeriod ?? '—',unit: wavePeriod ? 's' : '', sub: 'Período entre ondas',                                     pill: wavePeriod ? rPeriod : null },
-      { icon: wInfo.icon, label: 'Tempo',     value: wInfo.label,    unit: '',     sub: `${temp}°C`,                                                                pill: rWeather },
-      { icon: '🌀', label: 'Swell',           value: swellH,         unit: 'm',    sub: swellP ? `Período: ${swellP}s` : '',                                        pill: null },
-      { icon: '🌡️', label: 'Temperatura',     value: temp,           unit: '°C',   sub: `Precipitação: ${wc.precipitation} mm`,                                    pill: null },
+      { icon: '💨', label: 'Vento',          value: windSpeed,         unit: 'km/h', sub: `Direção: ${compassDir(windDir)} (${windDir}°)`,                           pill: rWind },
+      { icon: '🌊', label: 'Altura das Ondas',value: waveHeight,        unit: 'm',    sub: waveDir != null ? `Direção: ${compassDir(waveDir)} (${waveDir}°)` : '',    pill: rHeight },
+      { icon: '⏱️', label: 'Período',          value: wavePeriod ?? '—', unit: wavePeriod ? 's' : '', sub: 'Período entre ondas',                                     pill: wavePeriod ? rPeriod : null },
+      { icon: wInfo.icon, label: 'Tempo',     value: wInfo.label,       unit: '',     sub: `${temp}°C`,                                                                pill: rWeather },
+      { icon: '🌀', label: 'Swell',           value: swellH,            unit: 'm',    sub: swellP ? `Período: ${swellP}s` : '',                                        pill: null },
+      { icon: '🌡️', label: 'Temperatura',     value: temp,              unit: '°C',   sub: `Precipitação: ${wc.precipitation} mm`,                                    pill: null },
+      { icon: moon.icon, label: 'Fase da Lua', value: moon.name,         unit: '',     sub: moon.influence,                                                             pill: null, moonAge: moon.age, moonPct: moon.pct },
     ];
 
     document.getElementById('cards-grid').innerHTML = cards.map(makeCard).join('');
@@ -644,6 +701,8 @@
       const overall  = overallRating(rWind, rPeriod, rHeight, rWeather);
       const border   = pillBorderForecast[rHeight] ?? '';
 
+      const moon = getMoonPhase(date);
+
       return `
         <div class="forecast-day ${border} ${isToday ? 'active' : ''}" title="${dateStr}">
           <div class="fc-weekday">${weekday}</div>
@@ -653,6 +712,7 @@
           <div class="fc-wind"><i class="bi bi-wind"></i> ${windMax} km/h</div>
           ${waveP ? `<div class="fc-wind"><i class="bi bi-hourglass-split"></i> ${waveP}s</div>` : ''}
           <span class="fc-rating ${overall}">${ratingLabel[overall]}</span>
+          <div class="fc-moon"><span class="fc-moon-icon">${moon.icon}</span>${moon.name}</div>
         </div>`;
     }).join('');
 
